@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use alloy_sol_types::{sol, SolType};
 use clap::Parser;
-use hex;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
 
@@ -15,23 +14,27 @@ pub const ELF: &[u8] = include_bytes!("../../../program/elf/riscv32im-succinct-z
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct ProveArgs {
-    #[clap(long, default_value = "1")]
-    x: u64,
-    #[clap(long, default_value = "10")]
-    domain: u64,
-    #[clap(long, default_value = "16045690984833335023")]
-    seed: u64,
-    #[clap(long, default_value = "4")]
-    rounds: u64,
-
     #[clap(long, default_value = "false")]
     evm: bool,
 }
 
 /// The public values encoded as a tuple that can be easily deserialized inside Solidity.
 type PublicValuesTuple = sol! {
-    tuple(uint64,)
+    tuple(bytes32,)
 };
+
+#[derive(Serialize, Deserialize)]
+struct Entry {
+    address: [u8; 20],
+    start: u64,
+    end: u64,
+}
+
+// TODO: Import this from a shared project
+#[derive(Serialize, Deserialize)]
+struct WeightedRaffleProgramInput {
+    entries: Vec<Entry>,
+}
 
 fn main() {
     // Setup the logger.
@@ -46,44 +49,42 @@ fn main() {
     // Setup the program.
     let (pk, vk) = client.setup(ELF);
 
-    println!("x: {}", args.x);
-    println!("domain: {}", args.domain);
-    println!("seed: {}", args.seed);
-    println!("rounds: {}", args.rounds);
     // Setup the inputs.
 
-    for i in 0u64..10 {
-        let mut stdin = SP1Stdin::new();
-        // stdin.write(&args.x);
-        stdin.write(&i);
-        stdin.write(&args.domain);
-        stdin.write(&args.seed);
-        stdin.write(&args.rounds);
+    let mut stdin = SP1Stdin::new();
+    let mut entries: Vec<Entry> = vec![];
+    for i in 0..100u64 {
+        entries.push(Entry {
+            address: [(i & 0xff).try_into().unwrap(); 20],
+            start: i * 10,
+            end: i * 10 + 10,
+        });
+    }
+    let input = WeightedRaffleProgramInput { entries };
+    stdin.write(&input);
 
-        if args.evm {
-            // Generate the proof.
-            let proof = client
-                .prove(&pk, stdin)
-                .plonk()
-                .run()
-                .expect("failed to generate proof");
-            create_plonk_fixture(&proof, &vk);
-        } else {
-            // Generate the proof.
-            // let proof = client
-            //     .prove(&pk, stdin)
-            //     .run()
-            //     .expect("failed to generate proof");
-            // let proof = proof.public_values;
-            let (public_values, _) = client.execute(ELF, stdin).run().unwrap();
-            let (x_prime,) =
-                PublicValuesTuple::abi_decode(public_values.as_slice(), false).unwrap();
-            println!("Successfully generated proof!");
-            println!("x = {}, x_prime = {}\n", i, x_prime);
+    if args.evm {
+        // Generate the proof.
+        let proof = client
+            .prove(&pk, stdin)
+            .plonk()
+            .run()
+            .expect("failed to generate proof");
+        create_plonk_fixture(&proof, &vk);
+    } else {
+        // Generate the proof.
+        // let proof = client
+        //     .prove(&pk, stdin)
+        //     .run()
+        //     .expect("failed to generate proof");
+        // let proof = proof.public_values;
+        let (public_values, _) = client.execute(ELF, stdin).run().unwrap();
+        let (root,) = PublicValuesTuple::abi_decode(public_values.as_slice(), false).unwrap();
+        println!("Successfully generated proof!");
+        println!("Merkle root: {:?}", root);
 
-            // Verify the proof.
-            // client.verify(&proof, &vk).expect("failed to verify proof");
-        }
+        // Verify the proof.
+        // client.verify(&proof, &vk).expect("failed to verify proof");
     }
 }
 
@@ -91,7 +92,7 @@ fn main() {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1ProofFixture {
-    x_prime: u64,
+    root: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -101,11 +102,11 @@ struct SP1ProofFixture {
 fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
-    let (x_prime,) = PublicValuesTuple::abi_decode(bytes, false).unwrap();
+    let (root,) = PublicValuesTuple::abi_decode(bytes, false).unwrap();
 
     // Create the testing fixture so we can test things end-ot-end.
     let fixture = SP1ProofFixture {
-        x_prime,
+        root: root.to_string(),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),
