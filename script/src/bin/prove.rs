@@ -20,7 +20,8 @@ struct ProveArgs {
 
 /// The public values encoded as a tuple that can be easily deserialized inside Solidity.
 type PublicValuesTuple = sol! {
-    tuple(bytes32,)
+    // commitment_root, seed, winners_root
+    tuple(bytes32,bytes32,bytes32)
 };
 
 #[derive(Serialize, Deserialize)]
@@ -33,6 +34,7 @@ struct Entry {
 // TODO: Import this from a shared project
 #[derive(Serialize, Deserialize)]
 struct WeightedRaffleProgramInput {
+    seed: [u8; 32],
     entries: Vec<Entry>,
 }
 
@@ -60,7 +62,13 @@ fn main() {
             end: i * 10 + 10,
         });
     }
-    let input = WeightedRaffleProgramInput { entries };
+    let mut seed = [0u8; 32];
+    hex::decode_to_slice(
+        "deadbeeffeedfacedeadbeeffeedfacedeadbeeffeedfacedeadbeeffeedface",
+        &mut seed,
+    )
+    .unwrap();
+    let input = WeightedRaffleProgramInput { seed, entries };
     stdin.write(&input);
 
     if args.evm {
@@ -79,9 +87,12 @@ fn main() {
         //     .expect("failed to generate proof");
         // let proof = proof.public_values;
         let (public_values, _) = client.execute(ELF, stdin).run().unwrap();
-        let (root,) = PublicValuesTuple::abi_decode(public_values.as_slice(), false).unwrap();
+        let (commit_root, seed, winners_root) =
+            PublicValuesTuple::abi_decode(public_values.as_slice(), false).unwrap();
         println!("Successfully generated proof!");
-        println!("Merkle root: {:?}", root);
+        println!("Commitment root: {:?}", commit_root);
+        println!("Seed: {:?}", seed);
+        println!("Winners root: {:?}", winners_root);
 
         // Verify the proof.
         // client.verify(&proof, &vk).expect("failed to verify proof");
@@ -92,7 +103,9 @@ fn main() {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1ProofFixture {
-    root: String,
+    commit_root: String,
+    seed: String,
+    winners_root: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -102,11 +115,13 @@ struct SP1ProofFixture {
 fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
-    let (root,) = PublicValuesTuple::abi_decode(bytes, false).unwrap();
+    let (commit_root, seed, winners_root) = PublicValuesTuple::abi_decode(bytes, false).unwrap();
 
     // Create the testing fixture so we can test things end-ot-end.
     let fixture = SP1ProofFixture {
-        root: root.to_string(),
+        commit_root: commit_root.to_string(),
+        seed: seed.to_string(),
+        winners_root: winners_root.to_string(),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),

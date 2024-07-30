@@ -8,9 +8,11 @@ use feistel::shuffle;
 use rs_merkle::{Hasher, MerkleTree};
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Keccak256};
+use std::collections::HashSet;
 
 type PublicValuesTuple = sol! {
-    tuple(bytes32,)
+    // commitment_root, seed, winners_root
+    tuple(bytes32,bytes32,bytes32)
 };
 
 #[derive(Serialize, Deserialize)]
@@ -22,6 +24,7 @@ struct Entry {
 
 #[derive(Serialize, Deserialize)]
 struct WeightedRaffleProgramInput {
+    seed: [u8; 32],
     entries: Vec<Entry>,
 }
 
@@ -37,10 +40,52 @@ impl Hasher for Keccak256Algorithm {
     }
 }
 
+fn compute_winner(n: u64, entries: &[Entry], seed: [u8; 32]) -> [u8; 20] {
+    let last_entry = entries.last().unwrap();
+    let domain = last_entry.end;
+    let trunc_seed = u64::from_be_bytes(seed[24..32].try_into().unwrap());
+    let winning_index = shuffle(n, trunc_seed, domain, 4);
+
+    let mut l = 0u64;
+    let mut r = entries.len() as u64;
+    while l <= r {
+        let m = (l + r) / 2;
+        let entry = &entries[m as usize];
+        if entry.start <= winning_index && winning_index < entry.end {
+            return entry.address;
+        } else if entry.start > winning_index {
+            r = m - 1;
+        } else {
+            l = m + 1;
+        }
+    }
+    panic!("list exhausted without finding entry");
+}
+
+fn draw(num_winners: u64, seed: [u8; 32], entries: &[Entry]) -> Vec<[u8; 20]> {
+    let mut winners = HashSet::new();
+    let mut i = 0u64;
+    for _ in 0..num_winners {
+        let mut winner;
+        loop {
+            winner = compute_winner(i, entries, seed);
+            i += 1;
+            if !winners.contains(&winner) {
+                break;
+            }
+        }
+        winners.insert(winner);
+    }
+    winners.into_iter().collect()
+}
+
 pub fn main() {
     let input = sp1_zkvm::io::read::<WeightedRaffleProgramInput>();
 
     println!("cycle-tracker-start: main");
+
+    // Compute Merkle root of original commitment
+    // Leaves in the commitment tree are the hashes of the entries i.e. H(address || start || end)
     let leaves: Vec<[u8; 32]> = input
         .entries
         .iter()
@@ -52,12 +97,26 @@ pub fn main() {
             hasher.finalize().into()
         })
         .collect();
-    let tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&leaves);
-    let root = tree.root().ok_or("failed to get root").unwrap();
+    let commit_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&leaves);
+    let commit_root = commit_tree.root().ok_or("failed to compute root").unwrap();
+
+    // Draw winners & commit winners' Merkle root
+    // Leaves in the winners' Merkle root are the hashes of the winners i.e. H(address)
+    let winners: Vec<[u8; 32]> = draw(10, input.seed, &input.entries)
+        .into_iter()
+        .map(|address| {
+            let mut hasher = Keccak256::new();
+            hasher.update(address);
+            hasher.finalize().into()
+        })
+        .collect();
+    let winners_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&winners);
+    let winners_root = winners_tree.root().ok_or("failed to compute root").unwrap();
+
     println!("cycle-tracker-end: main");
 
     // Encode the public values of the program.
-    let bytes = PublicValuesTuple::abi_encode(&(root,));
+    let bytes = PublicValuesTuple::abi_encode(&(commit_root, input.seed, winners_root));
     // Commit to the public values of the program.
     sp1_zkvm::io::commit_slice(&bytes);
 }
