@@ -1,0 +1,10 @@
+[workspace]
+[package]
+version = "0.1.0"
+name = "weighted-raffle-program"
+edition = "2021"
+
+[dependencies]
+alloy-sol-types = "0.7.2"
+sp1-zkvm = "1.0.1"
+tiny-keccak = { features=["keccak"], git = "https://github.com/sp1-patches/tiny-keccak", branch = "patch-v2.0.2" }
