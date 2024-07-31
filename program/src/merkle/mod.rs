@@ -1,6 +1,7 @@
 use crate::raffle::{draw, Entry};
 use rs_merkle::{Hasher, MerkleTree};
 use sha3::{Digest, Keccak256};
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct Keccak256Algorithm;
@@ -15,7 +16,8 @@ impl Hasher for Keccak256Algorithm {
 }
 
 pub fn get_merkle_root(leaves: Vec<[u8; 32]>) -> [u8; 32] {
-    let winners_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&leaves);
+    let winners_tree: MerkleTree<Keccak256Algorithm> =
+        MerkleTree::<Keccak256Algorithm>::from_leaves(&leaves);
     winners_tree.root().ok_or("failed to compute root").unwrap()
 }
 
@@ -24,32 +26,35 @@ pub fn get_merkle_root(leaves: Vec<[u8; 32]>) -> [u8; 32] {
 pub fn get_commitment_root(entries: &[Entry]) -> [u8; 32] {
     assert!(entries.len() >= 2, "<2 entries");
 
-    let commit_leaves: Vec<[u8; 32]> =
-        entries
-            .iter()
-            .fold(vec![], |mut acc: Vec<[u8; 32]>, entry| {
-                // Invariant: first entry must start at 0
-                if acc.is_empty() {
-                    assert!(entry.start == 0, "first entry must start at 0");
-                }
-                // Invariant: weight must be positive
-                assert!(entry.start < entry.end, "invalid entry");
+    let (commit_leaves, _) = entries.iter().fold(
+        (vec![] as Vec<[u8; 32]>, HashSet::<[u8; 20]>::new()),
+        |(mut acc, mut address_set), entry| {
+            // Invariant: addresses are identities and must be distinct
+            assert!(address_set.insert(entry.address), "found duplicate entry");
+            // Invariant: first entry must start at 0
+            if acc.is_empty() {
+                assert!(entry.start == 0, "first entry must start at 0");
+            }
+            // Invariant: weight must be positive
+            assert!(entry.start < entry.end, "invalid entry");
 
-                // Invariant: entries must be adjacent segments
-                if !acc.is_empty() {
-                    let last_entry = &entries[acc.len() - 1];
-                    assert!(last_entry.end == entry.start, "non-adjacent entries");
-                }
+            // Invariant: entries must be adjacent segments
+            if !acc.is_empty() {
+                let last_entry = &entries[acc.len() - 1];
+                assert!(last_entry.end == entry.start, "non-adjacent entries");
+            }
 
-                // Hash leaf = H(address || start || end)
-                let mut hasher = Keccak256::new();
-                hasher.update(entry.address);
-                hasher.update(entry.start.to_be_bytes());
-                hasher.update(entry.end.to_be_bytes());
-                let leaf: [u8; 32] = hasher.finalize().into();
-                acc.push(leaf);
-                acc
-            });
+            // Hash leaf = H(address || start || end)
+            let mut hasher = Keccak256::new();
+            hasher.update(entry.address);
+            hasher.update(entry.start.to_be_bytes());
+            hasher.update(entry.end.to_be_bytes());
+            let leaf: [u8; 32] = hasher.finalize().into();
+
+            acc.push(leaf);
+            (acc, address_set)
+        },
+    );
     get_merkle_root(commit_leaves)
 }
 
@@ -156,5 +161,37 @@ mod tests {
             },
         ];
         get_commitment_root(&entries);
+    }
+
+    #[test]
+    #[should_panic(expected = "found duplicate entry")]
+    fn test_get_commitment_root_asserts_no_duplicates() {
+        let entries = vec![
+            Entry {
+                address: [1; 20],
+                start: 0,
+                end: 10,
+            },
+            Entry {
+                address: [1; 20], // <-- duplicate
+                start: 10,
+                end: 20,
+            },
+        ];
+        get_commitment_root(&entries);
+    }
+
+    #[test]
+    fn test_merkle_odd() {
+        let leaves = vec![[0x11u8; 20], [0x22; 20], [0x33; 20]]
+            .into_iter()
+            .map(|address| {
+                let mut hasher = Keccak256::new();
+                hasher.update(address);
+                hasher.finalize().into()
+            })
+            .collect();
+        println!("leaves = {:02x?}", leaves);
+        println!("root = {:02x?}", get_merkle_root(leaves));
     }
 }

@@ -57,8 +57,13 @@ fn main() {
     let mut stdin = SP1Stdin::new();
     let mut entries: Vec<Entry> = vec![];
     for i in 0..1000u64 {
+        let address: [u8; 20] = [vec![0u8; 12], i.to_be_bytes().to_vec()]
+            .concat()
+            .as_slice()
+            .try_into()
+            .unwrap();
         entries.push(Entry {
-            address: [(i & 0xff).try_into().unwrap(); 20],
+            address,
             start: i * 10,
             end: i * 10 + 10,
         });
