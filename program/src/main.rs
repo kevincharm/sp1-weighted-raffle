@@ -26,6 +26,7 @@ struct Entry {
 struct WeightedRaffleProgramInput {
     seed: [u8; 32],
     entries: Vec<Entry>,
+    num_winners: u64,
 }
 
 #[derive(Clone)]
@@ -63,6 +64,10 @@ fn compute_winner(n: u64, entries: &[Entry], seed: [u8; 32]) -> [u8; 20] {
 }
 
 fn draw(num_winners: u64, seed: [u8; 32], entries: &[Entry]) -> Vec<[u8; 20]> {
+    assert!(
+        num_winners <= entries.len() as u64,
+        "num_winners > |entries|"
+    );
     let mut winners = HashSet::new();
     let mut i = 0u64;
     for _ in 0..num_winners {
@@ -86,7 +91,7 @@ pub fn main() {
 
     // Compute Merkle root of original commitment
     // Leaves in the commitment tree are the hashes of the entries i.e. H(address || start || end)
-    let leaves: Vec<[u8; 32]> = input
+    let commit_leaves: Vec<[u8; 32]> = input
         .entries
         .iter()
         .map(|entry| {
@@ -97,12 +102,13 @@ pub fn main() {
             hasher.finalize().into()
         })
         .collect();
-    let commit_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&leaves);
+    let commit_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&commit_leaves);
     let commit_root = commit_tree.root().ok_or("failed to compute root").unwrap();
 
     // Draw winners & commit winners' Merkle root
     // Leaves in the winners' Merkle root are the hashes of the winners i.e. H(address)
-    let winners: Vec<[u8; 32]> = draw(10, input.seed, &input.entries)
+    let winners = draw(input.num_winners, input.seed, &input.entries);
+    let winners_leaves: Vec<[u8; 32]> = winners
         .into_iter()
         .map(|address| {
             let mut hasher = Keccak256::new();
@@ -110,7 +116,7 @@ pub fn main() {
             hasher.finalize().into()
         })
         .collect();
-    let winners_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&winners);
+    let winners_tree = MerkleTree::<Keccak256Algorithm>::from_leaves(&winners_leaves);
     let winners_root = winners_tree.root().ok_or("failed to compute root").unwrap();
 
     println!("cycle-tracker-end: main");

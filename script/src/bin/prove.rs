@@ -36,6 +36,7 @@ struct Entry {
 struct WeightedRaffleProgramInput {
     seed: [u8; 32],
     entries: Vec<Entry>,
+    num_winners: u64,
 }
 
 fn main() {
@@ -55,7 +56,7 @@ fn main() {
 
     let mut stdin = SP1Stdin::new();
     let mut entries: Vec<Entry> = vec![];
-    for i in 0..100u64 {
+    for i in 0..1000u64 {
         entries.push(Entry {
             address: [(i & 0xff).try_into().unwrap(); 20],
             start: i * 10,
@@ -68,7 +69,11 @@ fn main() {
         &mut seed,
     )
     .unwrap();
-    let input = WeightedRaffleProgramInput { seed, entries };
+    let input = WeightedRaffleProgramInput {
+        seed,
+        entries,
+        num_winners: 10,
+    };
     stdin.write(&input);
 
     if args.evm {
