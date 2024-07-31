@@ -1,7 +1,6 @@
 use crate::raffle::{draw, Entry};
 use rs_merkle::{Hasher, MerkleTree};
 use sha3::{Digest, Keccak256};
-use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct Keccak256Algorithm;
@@ -21,16 +20,25 @@ pub fn get_merkle_root(leaves: Vec<[u8; 32]>) -> [u8; 32] {
     winners_tree.root().ok_or("failed to compute root").unwrap()
 }
 
+fn is_ordered(a: &[u8; 20], b: &[u8; 20]) -> bool {
+    for i in 0..20 {
+        match (a[i], b[i]) {
+            (left, right) if left < right => return true,
+            (left, right) if left > right => return false,
+            _ => continue,
+        }
+    }
+    false
+}
+
 // Compute Merkle root of original commitment
 // Leaves in the commitment tree are the hashes of the entries i.e. H(address || start || end)
 pub fn get_commitment_root(entries: &[Entry]) -> [u8; 32] {
     assert!(entries.len() >= 2, "<2 entries");
 
-    let (commit_leaves, _) = entries.iter().fold(
-        (vec![] as Vec<[u8; 32]>, HashSet::<[u8; 20]>::new()),
-        |(mut acc, mut address_set), entry| {
-            // Invariant: addresses are identities and must be distinct
-            assert!(address_set.insert(entry.address), "found duplicate entry");
+    let commit_leaves = entries
+        .iter()
+        .fold(vec![] as Vec<[u8; 32]>, |mut acc, entry| {
             // Invariant: first entry must start at 0
             if acc.is_empty() {
                 assert!(entry.start == 0, "first entry must start at 0");
@@ -38,10 +46,15 @@ pub fn get_commitment_root(entries: &[Entry]) -> [u8; 32] {
             // Invariant: weight must be positive
             assert!(entry.start < entry.end, "invalid entry");
 
-            // Invariant: entries must be adjacent segments
             if !acc.is_empty() {
                 let last_entry = &entries[acc.len() - 1];
+                // Invariant: entries must be adjacent segments
                 assert!(last_entry.end == entry.start, "non-adjacent entries");
+                // Invariant: addresses are identities and must be distinct
+                assert!(
+                    is_ordered(&last_entry.address, &entry.address),
+                    "entries must be ordered (asc) by addresses"
+                );
             }
 
             // Hash leaf = H(address || start || end)
@@ -52,9 +65,8 @@ pub fn get_commitment_root(entries: &[Entry]) -> [u8; 32] {
             let leaf: [u8; 32] = hasher.finalize().into();
 
             acc.push(leaf);
-            (acc, address_set)
-        },
-    );
+            acc
+        });
     get_merkle_root(commit_leaves)
 }
 
@@ -164,16 +176,34 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "found duplicate entry")]
+    #[should_panic(expected = "entries must be ordered (asc) by addresses")]
     fn test_get_commitment_root_asserts_no_duplicates() {
         let entries = vec![
             Entry {
-                address: [1; 20],
+                address: [0x11; 20],
                 start: 0,
                 end: 10,
             },
             Entry {
-                address: [1; 20], // <-- duplicate
+                address: [0x11; 20], // <-- duplicate
+                start: 10,
+                end: 20,
+            },
+        ];
+        get_commitment_root(&entries);
+    }
+
+    #[test]
+    #[should_panic(expected = "entries must be ordered (asc) by addresses")]
+    fn test_get_commitment_root_asserts_ordering() {
+        let entries = vec![
+            Entry {
+                address: [0x22; 20],
+                start: 0,
+                end: 10,
+            },
+            Entry {
+                address: [0x11; 20], // <-- ordered descendingly
                 start: 10,
                 end: 20,
             },
