@@ -2,7 +2,9 @@ use sha3::{Digest, Keccak256};
 
 // Babylonian sqrt
 fn sqrt(s: u64) -> u64 {
+    #[cfg(not(test))]
     println!("cycle-tracker-start: sqrt");
+
     let mut z = 0;
     if s > 3 {
         z = s;
@@ -14,24 +16,31 @@ fn sqrt(s: u64) -> u64 {
     } else if s != 0 {
         z = 1;
     }
+
+    #[cfg(not(test))]
     println!("cycle-tracker-end: sqrt");
     z
 }
 
 // Take next perfect square unless n is already one
 fn next_perfect_square(n: u64) -> u64 {
+    #[cfg(not(test))]
     println!("cycle-tracker-start: next-perfect-square");
     let sqrt_n = sqrt(n);
     if sqrt_n.pow(2) == n {
         return n;
     }
     let out = (sqrt_n + 1).pow(2);
+
+    #[cfg(not(test))]
     println!("cycle-tracker-end: next-perfect-square");
     out
 }
 
 fn f(x: u64, i: u64, seed: u64, modulus: u64) -> u64 {
+    #[cfg(not(test))]
     println!("cycle-tracker-start: round-func");
+
     let mut keccak = Keccak256::new();
     keccak.update(x.to_le_bytes());
     keccak.update(i.to_le_bytes());
@@ -40,6 +49,8 @@ fn f(x: u64, i: u64, seed: u64, modulus: u64) -> u64 {
     let output: [u8; 32] = keccak.finalize().into(); // 64b
     let trunc_output = output[24..32].try_into().unwrap();
     let out = u64::from_be_bytes(trunc_output);
+
+    #[cfg(not(test))]
     println!("cycle-tracker-end: round-func");
     out
 }
@@ -50,6 +61,7 @@ pub fn shuffle(_x: u64, seed: u64, domain: u64, rounds: u64) -> u64 {
     assert!(_x < domain, "x too large");
     assert!((rounds & 1) == 0, "rounds must be even");
 
+    #[cfg(not(test))]
     println!("cycle-tracker-start: shuffle");
     let mut x = _x;
     let h = sqrt(next_perfect_square(domain));
@@ -66,6 +78,8 @@ pub fn shuffle(_x: u64, seed: u64, domain: u64, rounds: u64) -> u64 {
             break;
         }
     }
+
+    #[cfg(not(test))]
     println!("cycle-tracker-end: shuffle");
     x
 }
@@ -73,9 +87,10 @@ pub fn shuffle(_x: u64, seed: u64, domain: u64, rounds: u64) -> u64 {
 #[allow(dead_code)]
 pub fn deshuffle(_x_prime: u64, seed: u64, domain: u64, rounds: u64) -> u64 {
     assert!(domain != 0, "modulus must be > 0");
-    assert!(_x_prime < domain, "x too large");
+    assert!(_x_prime < domain, "x too large {_x_prime} >= {domain}");
     assert!((rounds & 1) == 0, "rounds must be even");
 
+    #[cfg(not(test))]
     println!("cycle-tracker-start: deshuffle");
     let mut x_prime = _x_prime;
     let h = sqrt(next_perfect_square(domain));
@@ -92,6 +107,8 @@ pub fn deshuffle(_x_prime: u64, seed: u64, domain: u64, rounds: u64) -> u64 {
             break;
         }
     }
+
+    #[cfg(not(test))]
     println!("cycle-tracker-end: deshuffle");
     x_prime
 }
