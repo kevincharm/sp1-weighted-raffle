@@ -1,6 +1,6 @@
 pub mod feistel;
 
-use feistel::shuffle;
+use feistel::deshuffle;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -15,7 +15,7 @@ fn compute_winner(n: u64, entries: &[Entry], seed: [u8; 32]) -> [u8; 20] {
     let last_entry = entries.last().unwrap();
     let domain = last_entry.end;
     let trunc_seed = u64::from_be_bytes(seed[24..32].try_into().unwrap());
-    let winning_index = shuffle(n, trunc_seed, domain, 4);
+    let winning_index = deshuffle(n, trunc_seed, domain, 4);
 
     let mut l = 0u64;
     let mut r = entries.len() as u64;

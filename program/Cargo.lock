@@ -1476,6 +1476,7 @@ dependencies = [
  "ark-ec",
  "ark-ff 0.4.2",
  "ark-std 0.4.0",
+ "rand",
  "rs_merkle",
  "serde",
  "sha3",

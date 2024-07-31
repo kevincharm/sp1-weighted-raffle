@@ -1,4 +1,4 @@
-#![no_main]
+#[cfg(not(test))]
 sp1_zkvm::entrypoint!(main);
 
 mod raffle;
@@ -21,7 +21,7 @@ struct WeightedRaffleProgramInput {
 }
 
 #[derive(Clone)]
-pub struct Keccak256Algorithm(Keccak256);
+pub struct Keccak256Algorithm;
 
 impl Hasher for Keccak256Algorithm {
     type Hash = [u8; 32];
