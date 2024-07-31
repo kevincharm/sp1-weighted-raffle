@@ -1,4 +1,4 @@
-use tiny_keccak::{Hasher, Keccak};
+use sha3::{Digest, Keccak256};
 
 // Babylonian sqrt
 fn sqrt(s: u64) -> u64 {
@@ -32,13 +32,12 @@ fn next_perfect_square(n: u64) -> u64 {
 
 fn f(x: u64, i: u64, seed: u64, modulus: u64) -> u64 {
     println!("cycle-tracker-start: round-func");
-    let mut keccak = Keccak::v256();
-    keccak.update(&x.to_le_bytes());
-    keccak.update(&i.to_le_bytes());
-    keccak.update(&seed.to_le_bytes());
-    keccak.update(&modulus.to_le_bytes());
-    let mut output = [0u8; 32]; // 64b
-    keccak.finalize(&mut output);
+    let mut keccak = Keccak256::new();
+    keccak.update(x.to_le_bytes());
+    keccak.update(i.to_le_bytes());
+    keccak.update(seed.to_le_bytes());
+    keccak.update(modulus.to_le_bytes());
+    let output: [u8; 32] = keccak.finalize().into(); // 64b
     let trunc_output = output[24..32].try_into().unwrap();
     let out = u64::from_be_bytes(trunc_output);
     println!("cycle-tracker-end: round-func");
